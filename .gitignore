@@ -1,0 +1,23 @@
+# Build artifacts
+/target/
+
+# Environment and secrets
+k8s/*
+k8s
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

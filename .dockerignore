@@ -1,0 +1,7 @@
+target/
+.git/
+.env
+*.log
+k8s/
+.dockerignore
+Dockerfile

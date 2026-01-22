@@ -1,0 +1,70 @@
+[package]
+name = "protonmail-mcp-server"
+version = "2026.1.22"
+edition = "2024"
+authors = ["Tensor Templar"]
+description = "MCP server for IMAP email access via ProtonMail Bridge"
+license = "MIT"
+repository = "https://github.com/tensor-templar/protonmail-mcp-server"
+
+[features]
+default = ["stdio"]
+stdio = ["rmcp/transport-io"]
+http = ["rmcp/transport-streamable-http-server", "dep:axum", "dep:tower", "dep:tower-http"]
+
+[dependencies]
+rmcp = { version = "0.13", features = ["server", "macros"] }
+
+# HTTP server (optional)
+axum = { version = "0.8", optional = true }
+tower = { version = "0.5", optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+
+# Async runtime
+tokio = { version = "1.44", features = ["full"] }
+tokio-util = { version = "0.7.0", features = ["full"] }
+async-std = { version = "1.12", features = ["attributes"] }
+
+# IMAP
+async-imap = "0.10.3"
+async-native-tls = "0.5.0"
+
+# Email parsing
+mail-parser = "0.10"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+schemars = "1.0"
+base64 = "0.22"
+
+# Logging
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+secrecy = { version = "0.8.0", features = ["serde", "alloc"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Configuration
+env_logger = "0.11"
+dotenv = "0.15"
+futures = "0.3.31"
+
+[dev-dependencies]
+env_logger = "0.11"
+reqwest = { version = "0.12", features = ["json"] }
+tokio-test = "0.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+debug = false
+strip = true
