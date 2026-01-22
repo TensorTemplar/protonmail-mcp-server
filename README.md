@@ -22,49 +22,16 @@ cd protonmail-mcp-server
 cargo install --path . --features http
 ```
 
-### Docker
+## Synopsis
+
+ProtonMail MCP Server is an IMAP-backed MCP server for ProtonMail Bridge. It exposes mailbox operations as MCP tools so AI assistants can list, search, and retrieve mail through a local Bridge connection.
+
+## Quickstart
 
 ```bash
-docker pull registry.k8s.hq.droidcraft.org/droidcraft/proton-mcp-server:latest
-```
-
-## Quick Start
-
-### 1. Configure `.env`
-
-```bash
-# IMAP Configuration (required)
-IMAP_HOST=127.0.0.1
-IMAP_PORT=1143
-IMAP_USERNAME=your-email@pm.me
-IMAP_PASSWORD=your-bridge-password
-IMAP_USE_TLS=false
-IMAP_SKIP_TLS_VERIFY=true
-
-# Server Configuration (optional)
-MCP_TRANSPORT=stdio              # "stdio" (default) or "http"
-MCP_HTTP_BIND=127.0.0.1:8080     # HTTP bind address
-MCP_AUTH_TOKEN=your-secret-token # Required for HTTP mode
-```
-
-### 2. Build
-
-```bash
-# Stdio transport only (default)
-cargo build --release
-
-# With HTTP transport support
-cargo build --release --features http
-```
-
-### 3. Run
-
-```bash
-# Stdio mode (for Claude Code MCP integration)
-./target/release/protonmail-mcp-server
-
-# HTTP mode (for remote agents)
-./target/release/protonmail-mcp-server --transport http
+cp .env.example .env
+# Edit .env with your IMAP and MCP settings
+cargo run
 ```
 
 ## HTTP Transport Deployment
