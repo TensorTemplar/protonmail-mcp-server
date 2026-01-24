@@ -1,4 +1,12 @@
-use crate::imap::types::{AttachmentData, EmailContent, EmailInfo, ImapError, ImapSettings, Result};
+use crate::imap::types::{
+    AttachmentData,
+    EmailContent,
+    EmailInfo,
+    ImapError,
+    ImapSettings,
+    MoveEmailStatus,
+    Result,
+};
 use async_native_tls::TlsConnector;
 use futures::stream::StreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
@@ -101,12 +109,17 @@ impl ImapClient {
         let mut names = Vec::new();
         let mut stream = Box::pin(mailbox_stream);
 
-        while let Some(Ok(mailbox)) = stream.next().await {
-            names.push(mailbox.name().to_string());
+        while let Some(mailbox_result) = stream.next().await {
+            match mailbox_result {
+                Ok(mailbox) => names.push(mailbox.name().to_string()),
+                Err(err) => log::error!("IMAP mailbox listing error: {}", err),
+            }
         }
         drop(stream);
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(names)
     }
 
@@ -135,23 +148,35 @@ impl ImapClient {
         let mut results = Vec::new();
         for uid in uids {
             let uid_str = uid.to_string();
-            if let Ok(mut fetch_stream) = session
+            match session
                 .uid_fetch(&uid_str, "BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)]")
                 .await
-                && let Some(Ok(fetch)) = fetch_stream.next().await
-                && let Some(header) = fetch.header()
             {
-                let header_str = String::from_utf8_lossy(header).to_string();
-                results.push(EmailInfo {
-                    uid: fetch.uid.unwrap_or(uid),
-                    subject: extract_header(&header_str, "Subject:"),
-                    from: extract_header(&header_str, "From:"),
-                    date: extract_header(&header_str, "Date:"),
-                });
+                Ok(mut fetch_stream) => {
+                    while let Some(fetch_result) = fetch_stream.next().await {
+                        match fetch_result {
+                            Ok(fetch) => {
+                                if let Some(header) = fetch.header() {
+                                    let header_str = String::from_utf8_lossy(header).to_string();
+                                    results.push(EmailInfo {
+                                        uid: fetch.uid.unwrap_or(uid),
+                                        subject: extract_header(&header_str, "Subject:"),
+                                        from: extract_header(&header_str, "From:"),
+                                        date: extract_header(&header_str, "Date:"),
+                                    });
+                                }
+                            }
+                            Err(err) => log::error!("IMAP fetch error for {}: {}", uid, err),
+                        }
+                    }
+                }
+                Err(err) => log::error!("IMAP fetch headers failed for {}: {}", uid, err),
             }
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(results)
     }
 
@@ -170,69 +195,79 @@ impl ImapClient {
             ..Default::default()
         };
 
-        if let Ok(mut fetch_stream) = session.uid_fetch(uid, "BODY.PEEK[]").await {
-            while let Some(Ok(fetch)) = fetch_stream.next().await {
-                if let Some(body) = fetch.body()
-                    && let Some(parsed) = MessageParser::default().parse(body)
-                {
-                    content.subject = parsed.subject()
-                        .map(|s| s.to_string())
-                        .unwrap_or_default();
+        match session.uid_fetch(uid, "BODY.PEEK[]").await {
+            Ok(mut fetch_stream) => {
+                while let Some(fetch_result) = fetch_stream.next().await {
+                    match fetch_result {
+                        Ok(fetch) => {
+                            if let Some(body) = fetch.body()
+                                && let Some(parsed) = MessageParser::default().parse(body)
+                            {
+                                content.subject = parsed.subject()
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_default();
 
-                    if let Some(mail_parser::Address::List(list)) = parsed.from()
-                        && let Some(addr) = list.first()
-                    {
-                        content.sender = addr.address
-                            .as_ref()
-                            .map(|a| a.to_string())
-                            .unwrap_or_default();
-                    }
+                                if let Some(mail_parser::Address::List(list)) = parsed.from()
+                                    && let Some(addr) = list.first()
+                                {
+                                    content.sender = addr.address
+                                        .as_ref()
+                                        .map(|a| a.to_string())
+                                        .unwrap_or_default();
+                                }
 
-                    if let Some(mail_parser::Address::List(list)) = parsed.to() {
-                        content.recipients = list.iter()
-                            .filter_map(|a| a.address.as_ref().map(|s| s.to_string()))
-                            .collect();
-                    }
+                                if let Some(mail_parser::Address::List(list)) = parsed.to() {
+                                    content.recipients = list.iter()
+                                        .filter_map(|a| a.address.as_ref().map(|s| s.to_string()))
+                                        .collect();
+                                }
 
-                    if let Some(mail_parser::Address::List(list)) = parsed.cc() {
-                        content.cc_recipients = list.iter()
-                            .filter_map(|a| a.address.as_ref().map(|s| s.to_string()))
-                            .collect();
-                    }
+                                if let Some(mail_parser::Address::List(list)) = parsed.cc() {
+                                    content.cc_recipients = list.iter()
+                                        .filter_map(|a| a.address.as_ref().map(|s| s.to_string()))
+                                        .collect();
+                                }
 
-                    content.body = parsed.text_bodies()
-                        .next()
-                        .map(|p| String::from_utf8_lossy(p.contents()).to_string())
-                        .or_else(|| parsed.html_bodies()
-                            .next()
-                            .map(|p| String::from_utf8_lossy(p.contents()).to_string()))
-                        .unwrap_or_default();
+                                content.body = parsed.text_bodies()
+                                    .next()
+                                    .map(|p| String::from_utf8_lossy(p.contents()).to_string())
+                                    .or_else(|| parsed.html_bodies()
+                                        .next()
+                                        .map(|p| String::from_utf8_lossy(p.contents()).to_string()))
+                                    .unwrap_or_default();
 
-                    for attachment in parsed.attachments() {
-                        if let Some(name) = attachment.attachment_name() {
-                            content.attachments.push(name.to_string());
+                                for attachment in parsed.attachments() {
+                                    if let Some(name) = attachment.attachment_name() {
+                                        content.attachments.push(name.to_string());
+                                    }
+                                }
+
+                                if let Some(date) = parsed.date() {
+                                    use chrono::TimeZone;
+                                    content.received_time = chrono::Utc
+                                        .with_ymd_and_hms(
+                                            date.year as i32,
+                                            date.month as u32,
+                                            date.day as u32,
+                                            date.hour as u32,
+                                            date.minute as u32,
+                                            date.second as u32,
+                                        )
+                                        .single()
+                                        .unwrap_or_else(chrono::Utc::now);
+                                }
+                            }
                         }
-                    }
-
-                    if let Some(date) = parsed.date() {
-                        use chrono::TimeZone;
-                        content.received_time = chrono::Utc
-                            .with_ymd_and_hms(
-                                date.year as i32,
-                                date.month as u32,
-                                date.day as u32,
-                                date.hour as u32,
-                                date.minute as u32,
-                                date.second as u32,
-                            )
-                            .single()
-                            .unwrap_or_else(chrono::Utc::now);
+                        Err(err) => log::error!("IMAP fetch error for email {}: {}", uid, err),
                     }
                 }
             }
+            Err(err) => log::error!("IMAP fetch failed for email {}: {}", uid, err),
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(Some(content))
     }
 
@@ -245,32 +280,42 @@ impl ImapClient {
 
         let mut attachment_data: Option<AttachmentData> = None;
 
-        if let Ok(mut fetch_stream) = session.uid_fetch(uid, "BODY.PEEK[]").await {
-            while let Some(Ok(fetch)) = fetch_stream.next().await {
-                if let Some(body) = fetch.body()
-                    && let Some(parsed) = MessageParser::default().parse(body)
-                {
-                    for attachment in parsed.attachments() {
-                        if let Some(name) = attachment.attachment_name()
-                            && name == attachment_name
-                        {
-                            let content_type = attachment.content_type()
-                                .map(|ct| format!("{}/{}", ct.c_type, ct.c_subtype.as_deref().unwrap_or("octet-stream")))
-                                .unwrap_or_else(|| "application/octet-stream".to_string());
+        match session.uid_fetch(uid, "BODY.PEEK[]").await {
+            Ok(mut fetch_stream) => {
+                while let Some(fetch_result) = fetch_stream.next().await {
+                    match fetch_result {
+                        Ok(fetch) => {
+                            if let Some(body) = fetch.body()
+                                && let Some(parsed) = MessageParser::default().parse(body)
+                            {
+                                for attachment in parsed.attachments() {
+                                    if let Some(name) = attachment.attachment_name()
+                                        && name == attachment_name
+                                    {
+                                        let content_type = attachment.content_type()
+                                            .map(|ct| format!("{}/{}", ct.c_type, ct.c_subtype.as_deref().unwrap_or("octet-stream")))
+                                            .unwrap_or_else(|| "application/octet-stream".to_string());
 
-                            attachment_data = Some(AttachmentData {
-                                name: name.to_string(),
-                                content_type,
-                                data: attachment.contents().to_vec(),
-                            });
-                            break;
+                                        attachment_data = Some(AttachmentData {
+                                            name: name.to_string(),
+                                            content_type,
+                                            data: attachment.contents().to_vec(),
+                                        });
+                                        break;
+                                    }
+                                }
+                            }
                         }
+                        Err(err) => log::error!("IMAP fetch error for attachment {} on {}: {}", attachment_name, uid, err),
                     }
                 }
             }
+            Err(err) => log::error!("IMAP fetch failed for attachment {} on {}: {}", attachment_name, uid, err),
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(attachment_data)
     }
 
@@ -298,7 +343,9 @@ impl ImapClient {
             }
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(flags)
     }
 
@@ -311,28 +358,38 @@ impl ImapClient {
 
         let mut flags = Vec::new();
 
-        if let Ok(mut fetch_stream) = session.uid_fetch(uid, "FLAGS").await
-            && let Some(Ok(fetch)) = fetch_stream.next().await
-        {
-            for flag in fetch.flags() {
-                let flag_str = match flag {
-                    async_imap::types::Flag::Seen => "\\Seen",
-                    async_imap::types::Flag::Answered => "\\Answered",
-                    async_imap::types::Flag::Flagged => "\\Flagged",
-                    async_imap::types::Flag::Deleted => "\\Deleted",
-                    async_imap::types::Flag::Draft => "\\Draft",
-                    async_imap::types::Flag::Recent => "\\Recent",
-                    async_imap::types::Flag::MayCreate => continue,
-                    async_imap::types::Flag::Custom(c) => {
-                        flags.push(c.to_string());
-                        continue;
+        match session.uid_fetch(uid, "FLAGS").await {
+            Ok(mut fetch_stream) => {
+                while let Some(fetch_result) = fetch_stream.next().await {
+                    match fetch_result {
+                        Ok(fetch) => {
+                            for flag in fetch.flags() {
+                                let flag_str = match flag {
+                                    async_imap::types::Flag::Seen => "\\Seen",
+                                    async_imap::types::Flag::Answered => "\\Answered",
+                                    async_imap::types::Flag::Flagged => "\\Flagged",
+                                    async_imap::types::Flag::Deleted => "\\Deleted",
+                                    async_imap::types::Flag::Draft => "\\Draft",
+                                    async_imap::types::Flag::Recent => "\\Recent",
+                                    async_imap::types::Flag::MayCreate => continue,
+                                    async_imap::types::Flag::Custom(c) => {
+                                        flags.push(c.to_string());
+                                        continue;
+                                    }
+                                };
+                                flags.push(flag_str.to_string());
+                            }
+                        }
+                        Err(err) => log::error!("IMAP fetch flags error for {}: {}", uid, err),
                     }
-                };
-                flags.push(flag_str.to_string());
+                }
             }
+            Err(err) => log::error!("IMAP fetch flags failed for {}: {}", uid, err),
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(flags)
     }
 
@@ -354,7 +411,9 @@ impl ImapClient {
             while store_stream.next().await.is_some() {}
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(())
     }
 
@@ -385,8 +444,86 @@ impl ImapClient {
             while pinned.next().await.is_some() {}
         }
 
-        let _ = session.logout().await;
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
         Ok(())
+    }
+
+    /// Move multiple emails to another mailbox (COPY + DELETE + EXPUNGE)
+    pub async fn move_emails(
+        &self,
+        uids: &[String],
+        from_mailbox: &str,
+        to_mailbox: &str,
+    ) -> Result<Vec<MoveEmailStatus>> {
+        let mut session = self.connect().await?;
+
+        session.select(from_mailbox).await
+            .map_err(|e| ImapError::MailboxSelect(from_mailbox.to_string(), e.to_string()))?;
+
+        let mut results = Vec::with_capacity(uids.len());
+        let mut any_deleted = false;
+
+        for uid in uids {
+            let mut status = MoveEmailStatus {
+                email_id: uid.clone(),
+                success: true,
+                error: None,
+            };
+
+            if let Err(e) = session.uid_copy(uid, to_mailbox).await {
+                log::error!("IMAP copy failed for {}: {}", uid, e);
+                status.success = false;
+                status.error = Some(format!("Copy failed: {}", e));
+                results.push(status);
+                continue;
+            }
+
+            let delete_result = match session.uid_store(uid, "+FLAGS (\\Deleted)").await {
+                Ok(mut delete_stream) => {
+                    while delete_stream.next().await.is_some() {}
+                    Ok(())
+                }
+                Err(e) => Err(ImapError::FlagOperation(format!("Delete flag failed: {}", e))),
+            };
+
+            if let Err(e) = delete_result {
+                log::error!("IMAP delete flag failed for {}: {}", uid, e);
+                status.success = false;
+                status.error = Some(e.to_string());
+                results.push(status);
+                continue;
+            }
+
+            any_deleted = true;
+            results.push(status);
+        }
+
+        if any_deleted {
+            let expunge_result = match session.expunge().await {
+                Ok(expunge_stream) => {
+                    let mut pinned = Box::pin(expunge_stream);
+                    while pinned.next().await.is_some() {}
+                    Ok(())
+                }
+                Err(e) => Err(ImapError::FlagOperation(format!("Expunge failed: {}", e))),
+            };
+
+            if let Err(e) = expunge_result {
+                log::error!("IMAP expunge failed after batch move: {}", e);
+                let error_message = e.to_string();
+                for status in results.iter_mut().filter(|status| status.success) {
+                    status.success = false;
+                    status.error = Some(error_message.clone());
+                }
+            }
+        }
+
+        if let Err(err) = session.logout().await {
+            log::warn!("IMAP logout failed: {}", err);
+        }
+        Ok(results)
     }
 }
 

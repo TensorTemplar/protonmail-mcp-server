@@ -2,7 +2,16 @@ pub mod imap_client;
 pub mod types;
 
 pub use self::imap_client::ImapClient;
-pub use self::types::{AttachmentData, EmailContent, EmailInfo, EmailMetadata, ImapError, ImapSettings, Result};
+pub use self::types::{
+    AttachmentData,
+    EmailContent,
+    EmailInfo,
+    EmailMetadata,
+    ImapError,
+    ImapSettings,
+    MoveEmailStatus,
+    Result,
+};
 
 use chrono::{DateTime, Utc};
 
@@ -163,6 +172,27 @@ impl ImapConnection {
 
         if let Some(client) = &self.client {
             client.move_email(email_id, from_mailbox, to_mailbox).await
+        } else {
+            Err(ImapError::Login("Not connected".to_string()))
+        }
+    }
+
+    /// Move multiple emails to another mailbox
+    pub async fn move_emails(
+        &self,
+        email_ids: &[String],
+        from_mailbox: &str,
+        to_mailbox: &str,
+    ) -> Result<Vec<MoveEmailStatus>> {
+        log::debug!(
+            "ImapConnection: Moving {} emails from '{}' to '{}'...",
+            email_ids.len(),
+            from_mailbox,
+            to_mailbox
+        );
+
+        if let Some(client) = &self.client {
+            client.move_emails(email_ids, from_mailbox, to_mailbox).await
         } else {
             Err(ImapError::Login("Not connected".to_string()))
         }

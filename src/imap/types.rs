@@ -109,6 +109,14 @@ pub struct EmailContent {
     pub received_time: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MoveEmailStatus {
+    pub email_id: String,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Attachment data with content
 #[derive(Debug, Clone, Serialize)]
 pub struct AttachmentData {

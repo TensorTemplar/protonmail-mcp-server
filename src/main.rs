@@ -39,6 +39,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let transport = args.transport.unwrap_or(config.server.transport.clone());
     let bind = args.bind.unwrap_or(config.server.http_bind.clone());
+    #[cfg(not(feature = "http"))]
+    let _ = &bind;
 
     log::info!("Starting ProtonMail MCP server (transport: {})...", transport);
     log::info!(
