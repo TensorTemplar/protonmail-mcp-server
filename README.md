@@ -99,9 +99,9 @@ curl -X POST http://localhost:8080/mcp \
 
 ## Sponsors
 
-Support this project:
+If you find this project useful, consider supporting us:
 
-- [One-time sponsorship](https://buy.stripe.com/28o4gL5Qu9URaFaeUU)
-- [Monthly sponsorship](https://buy.stripe.com/aEUaF992G5EBaFa8wx)
+[![Sponsor $10](https://img.shields.io/badge/Sponsor-%2410-green?style=for-the-badge&logo=stripe)](https://buy.stripe.com/28o4gL5Qu9URaFaeUU)
+[![Sponsor $6/month](https://img.shields.io/badge/Sponsor-%246%2Fmonth-orange?style=for-the-badge&logo=stripe)](https://buy.stripe.com/aEUaF992G5EBaFa8wx)
 
 Please include your name and project in the payment notes to be listed in SPONSORS.md.
