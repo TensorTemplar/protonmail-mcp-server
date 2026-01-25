@@ -1,37 +1,27 @@
 # ProtonMail MCP Server
 
-IMAP Mailbox MCP (Model Context Protocol) server for ProtonMail Bridge. Exposes email operations as MCP tools for AI assistants.
+Unofficial IMAP-backed MCP (Model Context Protocol) server for ProtonMail Bridge. Exposes mailbox operations as MCP tools so AI assistants can list, search, and retrieve mail through a local Bridge connection.
 
-## Installation
+## Quickstart
 
-### From crates.io
+### Install
 
 ```bash
-# With HTTP transport (recommended)
+# From crates.io (recommended)
 cargo install protonmail-mcp-server --features http
 
-# Stdio only (default)
-cargo install protonmail-mcp-server
-```
-
-### From source
-
-```bash
+# Or from source
 git clone https://github.com/tensor-templar/protonmail-mcp-server
 cd protonmail-mcp-server
 cargo install --path . --features http
 ```
 
-## Synopsis
-
-ProtonMail MCP Server is an IMAP-backed MCP server for ProtonMail Bridge. It exposes mailbox operations as MCP tools so AI assistants can list, search, and retrieve mail through a local Bridge connection.
-
-## Quickstart
+### Configure and Run
 
 ```bash
 cp .env.example .env
 # Edit .env with your IMAP and MCP settings
-cargo run
+protonmail-mcp-server
 ```
 
 ## HTTP Transport Deployment
@@ -107,15 +97,11 @@ curl -X POST http://localhost:8080/mcp \
 | `move_email` | Move email to another folder | destructive |
 | `get_attachment` | Download attachment (file or base64) | destructive, open-world |
 
-## Development
+## Sponsors
 
-```bash
-# Run tests
-cargo test --features http
+Support this project:
 
-# Run clippy
-cargo clippy --features http
+- [One-time sponsorship](https://buy.stripe.com/28o4gL5Qu9URaFaeUU)
+- [Monthly sponsorship](https://buy.stripe.com/aEUaF992G5EBaFa8wx)
 
-# Format
-cargo fmt
-```
+Please include your name and project in the payment notes to be listed in SPONSORS.md.

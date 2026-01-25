@@ -234,11 +234,11 @@ pub struct MoveEmailRequest {
     #[schemars(description = "Email ID to move")]
     pub email_id: String,
 
-    #[schemars(description = "Source mailbox")]
+    #[schemars(description = "Source mailbox to move from (defaults to INBOX). Use list_mailboxes to see available folders.")]
     #[serde(default = "default_inbox")]
     pub from_mailbox: String,
 
-    #[schemars(description = "Destination mailbox/folder")]
+    #[schemars(description = "Destination mailbox/folder to move to (e.g., 'Archive', 'Folders/Work')")]
     pub to_mailbox: String,
 }
 
@@ -248,11 +248,11 @@ pub struct MoveEmailsRequest {
     #[schemars(description = "Email IDs to move")]
     pub email_ids: Vec<String>,
 
-    #[schemars(description = "Source mailbox")]
+    #[schemars(description = "Source mailbox to move from (defaults to INBOX). Use list_mailboxes to see available folders.")]
     #[serde(default = "default_inbox")]
     pub from_mailbox: String,
 
-    #[schemars(description = "Destination mailbox/folder")]
+    #[schemars(description = "Destination mailbox/folder to move to (e.g., 'Archive', 'Folders/Work')")]
     pub to_mailbox: String,
 }
 
@@ -311,19 +311,19 @@ struct TagOperationResponse {
 
 #[derive(Serialize)]
 struct MoveEmailResponse {
-    success: bool,
     email_id: String,
     from_mailbox: String,
     to_mailbox: String,
+    message: String,
 }
 
 #[derive(Serialize)]
 struct MoveEmailsResponse {
-    success: bool,
     moved: usize,
     failed: usize,
     from_mailbox: String,
     to_mailbox: String,
+    message: String,
     results: Vec<MoveEmailStatus>,
 }
 
@@ -567,10 +567,10 @@ impl ImapMailboxServer {
             })?;
 
         let response = MoveEmailResponse {
-            success: true,
             email_id: req.email_id,
-            from_mailbox: req.from_mailbox,
-            to_mailbox: req.to_mailbox,
+            from_mailbox: req.from_mailbox.clone(),
+            to_mailbox: req.to_mailbox.clone(),
+            message: format!("Email moved from '{}' to '{}'", req.from_mailbox, req.to_mailbox),
         };
         Ok(CallToolResult::success(vec![Content::json(response)?]))
     }
@@ -598,16 +598,42 @@ impl ImapMailboxServer {
 
         let moved = results.iter().filter(|status| status.success).count();
         let failed = results.len().saturating_sub(moved);
+        let total = results.len();
+
+        let message = if failed == 0 {
+            format!(
+                "Successfully moved {} email(s) from '{}' to '{}'",
+                moved, req.from_mailbox, req.to_mailbox
+            )
+        } else if moved == 0 {
+            format!(
+                "Failed to move any emails from '{}' to '{}'. {} error(s) occurred.",
+                req.from_mailbox, req.to_mailbox, failed
+            )
+        } else {
+            format!(
+                "Partial failure: moved {} of {} email(s) from '{}' to '{}'. {} failed.",
+                moved, total, req.from_mailbox, req.to_mailbox, failed
+            )
+        };
+
         let response = MoveEmailsResponse {
-            success: failed == 0,
             moved,
             failed,
             from_mailbox: req.from_mailbox,
             to_mailbox: req.to_mailbox,
+            message,
             results,
         };
 
-        Ok(CallToolResult::success(vec![Content::json(response)?]))
+        if failed > 0 {
+            Err(McpError::internal_error(
+                response.message.clone(),
+                Some(serde_json::to_value(&response).unwrap_or_default()),
+            ))
+        } else {
+            Ok(CallToolResult::success(vec![Content::json(response)?]))
+        }
     }
 
     #[tool(description = "Get an attachment from an email. Optionally save to a file path, otherwise returns base64-encoded content.", annotations(read_only_hint = false, destructive_hint = true, open_world_hint = true))]

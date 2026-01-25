@@ -424,6 +424,40 @@ impl ImapClient {
         session.select(from_mailbox).await
             .map_err(|e| ImapError::MailboxSelect(from_mailbox.to_string(), e.to_string()))?;
 
+        // Verify email exists before attempting move
+        let exists = {
+            let fetch_result = session.uid_fetch(uid, "FLAGS").await;
+            match fetch_result {
+                Ok(mut fetch_stream) => {
+                    let mut found = false;
+                    while let Some(result) = fetch_stream.next().await {
+                        if result.is_ok() {
+                            found = true;
+                            break;
+                        }
+                    }
+                    Ok(found)
+                }
+                Err(e) => Err(ImapError::FlagOperation(format!("Failed to verify email exists: {}", e))),
+            }
+        };
+
+        match exists {
+            Ok(false) => {
+                if let Err(err) = session.logout().await {
+                    log::warn!("IMAP logout failed: {}", err);
+                }
+                return Err(ImapError::MessageNotFound);
+            }
+            Err(e) => {
+                if let Err(err) = session.logout().await {
+                    log::warn!("IMAP logout failed: {}", err);
+                }
+                return Err(e);
+            }
+            Ok(true) => {}
+        }
+
         // Copy to destination
         session.uid_copy(uid, to_mailbox).await
             .map_err(|e| ImapError::FlagOperation(format!("Copy failed: {}", e)))?;
@@ -471,6 +505,34 @@ impl ImapClient {
                 success: true,
                 error: None,
             };
+
+            // Verify email exists before attempting move
+            let mut exists = false;
+            match session.uid_fetch(uid, "FLAGS").await {
+                Ok(mut fetch_stream) => {
+                    while let Some(fetch_result) = fetch_stream.next().await {
+                        if fetch_result.is_ok() {
+                            exists = true;
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to verify email {} exists: {}", uid, e);
+                    status.success = false;
+                    status.error = Some(format!("Failed to verify email exists: {}", e));
+                    results.push(status);
+                    continue;
+                }
+            }
+
+            if !exists {
+                log::error!("Email {} not found in mailbox {}", uid, from_mailbox);
+                status.success = false;
+                status.error = Some(format!("Email not found in mailbox '{}'", from_mailbox));
+                results.push(status);
+                continue;
+            }
 
             if let Err(e) = session.uid_copy(uid, to_mailbox).await {
                 log::error!("IMAP copy failed for {}: {}", uid, e);
