@@ -2,6 +2,32 @@
 
 Unofficial IMAP-backed MCP (Model Context Protocol) server for ProtonMail Bridge. Exposes mailbox operations as MCP tools so AI assistants can list, search, and retrieve mail through a local Bridge connection.
 
+## News
+
+### v2026.2.2 - Breaking Change
+
+**`search_emails` renamed to `get_inbox_items`** - The old `search_emails` tool (which listed emails with optional date filtering) has been renamed to `get_inbox_items` to better reflect its purpose.
+
+**New `search_emails` with keyword search** - A new `search_emails` tool now provides actual keyword-based searching with field selection:
+
+```json
+{
+  "mailbox": "INBOX",
+  "query": "meeting notes",
+  "fields": ["subject", "from"],
+  "since_date": "2025-01-01T00:00:00Z",
+  "limit": 30
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `query` | Yes | Search keywords |
+| `fields` | No | Fields to search: `text` (anywhere), `subject`, `from`, `to`, `body`. Defaults to `text`. |
+| `since_date` | No | ISO 8601 date filter |
+| `mailbox` | No | Defaults to `INBOX` |
+| `limit` | No | Defaults to 30 |
+
 ## Quickstart
 
 ### Install
@@ -87,7 +113,8 @@ curl -X POST http://localhost:8080/mcp \
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `list_mailboxes` | List available mailboxes | read-only |
-| `search_emails` | Search emails with date filtering | read-only |
+| `get_inbox_items` | Get emails from a mailbox with optional date filtering | read-only |
+| `search_emails` | Search emails by keyword in specified fields | read-only |
 | `get_email` | Fetch full email content by ID | read-only |
 | `get_current_date` | Get current UTC timestamp | read-only |
 | `list_tags` | List available flags for a mailbox | read-only |
@@ -95,6 +122,7 @@ curl -X POST http://localhost:8080/mcp \
 | `apply_tag` | Apply a flag to an email | idempotent |
 | `remove_tag` | Remove a flag from an email | destructive |
 | `move_email` | Move email to another folder | destructive |
+| `move_emails` | Move multiple emails to another folder | destructive |
 | `get_attachment` | Download attachment (file or base64) | destructive, open-world |
 
 ## Sponsors

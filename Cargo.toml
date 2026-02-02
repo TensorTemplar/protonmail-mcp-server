@@ -1,6 +1,6 @@
 [package]
 name = "protonmail-mcp-server"
-version = "2026.1.25"
+version = "2026.2.2"
 edition = "2024"
 authors = ["Tensor Templar"]
 description = "MCP server for IMAP email access via ProtonMail Bridge"

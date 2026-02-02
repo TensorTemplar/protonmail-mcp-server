@@ -151,14 +151,37 @@ fn default_use_tls() -> bool {
     true
 }
 
-/// Request to search for emails
+/// Request to get inbox items (emails from a mailbox with optional date filter)
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetInboxItemsRequest {
+    #[schemars(description = "Mailbox to get emails from")]
+    #[serde(default = "default_inbox")]
+    pub mailbox: String,
+
+    #[schemars(description = "Only include emails after this date (ISO 8601 format, e.g., 2025-01-31T10:15:00Z)")]
+    pub since_date: Option<String>,
+
+    #[schemars(description = "Maximum number of emails to return")]
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+/// Request to search emails by keyword
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchEmailsRequest {
     #[schemars(description = "Mailbox to search in")]
     #[serde(default = "default_inbox")]
     pub mailbox: String,
 
-    #[schemars(description = "Only include emails after this date (ISO format)")]
+    #[schemars(description = "Search keywords")]
+    pub query: String,
+
+    #[schemars(description = "Fields to search in: 'text' (anywhere), 'subject', 'from', 'to', 'body'. Defaults to 'text' if not specified.")]
+    #[serde(default)]
+    pub fields: Option<Vec<String>>,
+
+    #[schemars(description = "Only include emails after this date (ISO 8601 format, e.g., 2025-01-31T10:15:00Z)")]
+    #[serde(default)]
     pub since_date: Option<String>,
 
     #[schemars(description = "Maximum number of emails to return")]
@@ -276,6 +299,12 @@ pub struct GetAttachmentRequest {
 #[derive(Serialize)]
 struct ListMailboxesResponse {
     mailboxes: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct GetInboxItemsResponse {
+    count: usize,
+    emails: Vec<EmailMetadata>,
 }
 
 #[derive(Serialize)]
@@ -407,8 +436,8 @@ impl ImapMailboxServer {
         Ok(CallToolResult::success(vec![Content::json(response)?]))
     }
 
-    #[tool(description = "Search for emails in a mailbox", annotations(read_only_hint = true))]
-    async fn search_emails(&self, Parameters(req): Parameters<SearchEmailsRequest>) -> Result<CallToolResult, McpError> {
+    #[tool(description = "Get emails from a mailbox with optional date filtering", annotations(read_only_hint = true))]
+    async fn get_inbox_items(&self, Parameters(req): Parameters<GetInboxItemsRequest>) -> Result<CallToolResult, McpError> {
         validate_non_empty("mailbox", &req.mailbox)?;
         validate_limit(req.limit)?;
         if let Some(date_str) = &req.since_date {
@@ -442,6 +471,57 @@ impl ImapMailboxServer {
         };
 
         let emails = connection.search_emails(&req.mailbox, since_date, Some(req.limit)).await
+            .map_err(|e| {
+                log::error!("Failed to get emails from {}: {}", req.mailbox, e);
+                McpError::internal_error(e.to_string(), None)
+            })?;
+
+        let response = GetInboxItemsResponse { count: emails.len(), emails };
+        Ok(CallToolResult::success(vec![Content::json(response)?]))
+    }
+
+    #[tool(description = "Search for emails by keyword in specified fields", annotations(read_only_hint = true))]
+    async fn search_emails(&self, Parameters(req): Parameters<SearchEmailsRequest>) -> Result<CallToolResult, McpError> {
+        validate_non_empty("mailbox", &req.mailbox)?;
+        validate_non_empty("query", &req.query)?;
+        validate_limit(req.limit)?;
+        if let Some(date_str) = &req.since_date {
+            validate_non_empty("since_date", date_str)?;
+        }
+
+        self.ensure_connected().await?;
+        let connection = self.connection.lock().await;
+
+        let since_date = if let Some(date_str) = &req.since_date {
+            Some(DateTime::parse_from_rfc3339(date_str)
+                .map_err(|e| {
+                    let message = format!("Invalid date format: {}. Use ISO 8601 format.", e);
+                    log::error!("{}", message);
+                    McpError::invalid_params(
+                        message,
+                        Some(JsonValue::Object({
+                            let mut data = JsonMap::new();
+                            data.insert("field".to_string(), JsonValue::String("since_date".to_string()));
+                            data.insert("reason".to_string(), JsonValue::String("invalid_format".to_string()));
+                            data.insert("expected".to_string(), JsonValue::String("ISO 8601 timestamp".to_string()));
+                            data.insert("hint".to_string(), JsonValue::String("Example: 2025-01-31T10:15:00Z".to_string()));
+                            data.insert("value".to_string(), JsonValue::String(date_str.clone()));
+                            data
+                        })),
+                    )
+                })?
+                .with_timezone(&Utc))
+        } else {
+            None
+        };
+
+        let emails = connection.search_emails_by_keyword(
+            &req.mailbox,
+            &req.query,
+            req.fields.as_deref(),
+            since_date,
+            Some(req.limit),
+        ).await
             .map_err(|e| {
                 log::error!("Failed to search emails in {}: {}", req.mailbox, e);
                 McpError::internal_error(e.to_string(), None)

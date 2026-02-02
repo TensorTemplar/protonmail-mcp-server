@@ -109,6 +109,82 @@ impl ImapConnection {
         }
     }
 
+    /// Search emails by keyword in specified fields
+    pub async fn search_emails_by_keyword(
+        &self,
+        mailbox: &str,
+        query: &str,
+        fields: Option<&[String]>,
+        since_date: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+    ) -> Result<Vec<EmailMetadata>> {
+        log::debug!("ImapConnection: Searching emails by keyword '{}' in '{}'...", query, mailbox);
+
+        if let Some(client) = &self.client {
+            // Build field-specific query parts
+            let field_queries: Vec<String> = match fields {
+                Some(f) if !f.is_empty() => {
+                    f.iter()
+                        .filter_map(|field| {
+                            let field_lower = field.to_lowercase();
+                            match field_lower.as_str() {
+                                "text" => Some(format!("TEXT \"{}\"", query)),
+                                "subject" => Some(format!("SUBJECT \"{}\"", query)),
+                                "from" => Some(format!("FROM \"{}\"", query)),
+                                "to" => Some(format!("TO \"{}\"", query)),
+                                "body" => Some(format!("BODY \"{}\"", query)),
+                                _ => {
+                                    log::warn!("Unknown search field: {}", field);
+                                    None
+                                }
+                            }
+                        })
+                        .collect()
+                }
+                _ => vec![format!("TEXT \"{}\"", query)], // Default to TEXT search
+            };
+
+            // Combine field queries with OR if multiple
+            let search_part = if field_queries.len() == 1 {
+                field_queries.into_iter().next().unwrap()
+            } else {
+                // IMAP OR syntax: OR <search1> <search2>
+                // For multiple: OR (OR a b) c
+                field_queries.into_iter().reduce(|acc, q| format!("OR {} {}", acc, q)).unwrap()
+            };
+
+            // Add date filter if provided
+            let imap_query = match since_date {
+                Some(date) => format!("{} SINCE {}", search_part, date.format("%d-%b-%Y")),
+                None => search_part,
+            };
+
+            log::debug!("IMAP search query: {}", imap_query);
+
+            let results = client.search_emails(mailbox, &imap_query, limit.map(|l| l as u32)).await?;
+
+            Ok(results
+                .into_iter()
+                .map(|info| {
+                    let received_time = info.date
+                        .as_ref()
+                        .and_then(|d| chrono::DateTime::parse_from_rfc2822(d).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(Utc::now);
+
+                    EmailMetadata {
+                        email_id: info.uid.to_string(),
+                        sender: info.from.unwrap_or_default(),
+                        subject: info.subject.unwrap_or_default(),
+                        received_time,
+                    }
+                })
+                .collect())
+        } else {
+            Err(ImapError::Login("Not connected".to_string()))
+        }
+    }
+
     pub async fn get_email_content(&self, mailbox: &str, email_id: &str) -> Result<EmailContent> {
         log::debug!("ImapConnection: Getting content for email {} in '{}'...", email_id, mailbox);
 
