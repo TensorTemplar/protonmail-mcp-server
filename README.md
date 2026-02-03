@@ -32,21 +32,89 @@ Unofficial IMAP-backed MCP (Model Context Protocol) server for ProtonMail Bridge
 
 ### Install
 
+**Prebuilt binaries (recommended):**
+
+Linux:
 ```bash
-# From crates.io (recommended)
+curl -LO https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/protonmail-mcp-server-x86_64-unknown-linux-gnu.tar.gz
+tar xzf protonmail-mcp-server-x86_64-unknown-linux-gnu.tar.gz
+chmod +x protonmail-mcp-server
+sudo mv protonmail-mcp-server /usr/local/bin/
+```
+
+macOS (Apple Silicon):
+```bash
+curl -LO https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/protonmail-mcp-server-aarch64-apple-darwin.tar.gz
+tar xzf protonmail-mcp-server-aarch64-apple-darwin.tar.gz
+chmod +x protonmail-mcp-server
+sudo mv protonmail-mcp-server /usr/local/bin/
+```
+
+macOS (Intel):
+```bash
+curl -LO https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/protonmail-mcp-server-x86_64-apple-darwin.tar.gz
+tar xzf protonmail-mcp-server-x86_64-apple-darwin.tar.gz
+chmod +x protonmail-mcp-server
+sudo mv protonmail-mcp-server /usr/local/bin/
+```
+
+Windows (PowerShell):
+```powershell
+Invoke-WebRequest -Uri "https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/protonmail-mcp-server.exe-x86_64-pc-windows-msvc.zip" -OutFile "protonmail-mcp-server.zip"
+Expand-Archive protonmail-mcp-server.zip -DestinationPath .
+```
+
+**Via cargo:**
+
+```bash
+# From crates.io
 cargo install protonmail-mcp-server --features http
 
 # Or from source
-git clone https://github.com/tensor-templar/protonmail-mcp-server
+git clone https://github.com/TensorTemplar/protonmail-mcp-server
 cd protonmail-mcp-server
 cargo install --path . --features http
+```
+
+### Verify Downloads (Optional)
+
+All release binaries include SHA256 checksums signed with [Sigstore](https://sigstore.dev/).
+
+**Checksum verification:**
+```bash
+curl -LO https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+**Signature verification (requires [cosign](https://github.com/sigstore/cosign)):**
+```bash
+curl -LO https://github.com/TensorTemplar/protonmail-mcp-server/releases/latest/download/SHA256SUMS.txt.bundle
+cosign verify-blob \
+  --certificate-identity-regexp "github.com/TensorTemplar/protonmail-mcp-server" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle SHA256SUMS.txt.bundle \
+  SHA256SUMS.txt
 ```
 
 ### Configure and Run
 
 ```bash
+# Set environment variables
+export IMAP_HOST=127.0.0.1
+export IMAP_PORT=1143
+export IMAP_USERNAME=your@email.com
+export IMAP_PASSWORD=your-bridge-password
+export MCP_TRANSPORT=http
+export MCP_AUTH_TOKEN=your-secret-token
+
+# Run
+protonmail-mcp-server
+```
+
+Or copy and edit the example env file:
+```bash
 cp .env.example .env
-# Edit .env with your IMAP and MCP settings
+# Edit .env with your settings
 protonmail-mcp-server
 ```
 

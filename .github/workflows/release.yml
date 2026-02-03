@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # Required for Sigstore OIDC signing
 
 jobs:
   create-release:
@@ -78,3 +79,44 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload ${{ github.ref_name }} ${{ matrix.artifact }}-${{ matrix.target }}.zip --clobber
+
+  checksums-and-sign:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.ref_name }} --dir artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Install cosign
+        run: |
+          curl -sLO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          chmod +x cosign-linux-amd64
+          sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+
+      - name: Sign checksums file
+        run: |
+          cd artifacts
+          cosign sign-blob --yes \
+            --oidc-issuer https://token.actions.githubusercontent.com \
+            --bundle SHA256SUMS.txt.bundle \
+            SHA256SUMS.txt
+
+      - name: Upload checksums and signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            artifacts/SHA256SUMS.txt \
+            artifacts/SHA256SUMS.txt.bundle \
+            --clobber
