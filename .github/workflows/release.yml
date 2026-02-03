@@ -108,7 +108,6 @@ jobs:
         run: |
           cd artifacts
           cosign sign-blob --yes \
-            --oidc-issuer https://token.actions.githubusercontent.com \
             --bundle SHA256SUMS.txt.bundle \
             SHA256SUMS.txt
 
